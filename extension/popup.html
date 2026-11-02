@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>关注计数器 – 防撞限、查回关</title>
+<style>
+  :root { --blue: #1d9bf0; --amber: #ffad1f; --red: #f4212e; --green: #00ba7c;
+    --page: #f4f6f8; --card: #fff; --fg: #0f1419; --sub: #536471; --line: #eff3f4; --tile: #f7f9f9; --empty: #e1e8ed;
+    color-scheme: light; }
+  :root[data-theme="dark"] { --page: #0b0d10; --card: #16181c; --fg: #e7e9ea; --sub: #8b98a5; --line: #2f3336; --tile: #202327; --empty: #2f3336;
+    color-scheme: dark; }
+  body, .card, .windows div { transition: background-color 250ms, color 250ms; }
+  * { box-sizing: border-box; }
+  ::selection { background: rgba(29, 155, 240, .3); }
+  body { width: 368px; margin: 0; padding: 12px; background: var(--page); color: var(--fg);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif; }
+  header { display: flex; align-items: center; gap: 8px; padding: 2px 4px 10px; }
+  header img { width: 22px; height: 22px; }
+  header h1 { flex: 1; margin: 0; font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+  .pill { padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--tile); color: var(--sub); }
+  .pill.going { background: rgba(29, 155, 240, .14); color: #0f5f99; }
+  .pill.near { background: rgba(255, 173, 31, .18); color: #8a5300; }
+  .pill.full, .pill.ready { background: rgba(0, 186, 124, .15); color: #00653f; }
+  .pill.cooling { background: rgba(244, 33, 46, .12); color: #b0141f; }
+  [data-theme="dark"] .pill.going { color: var(--blue); }
+  [data-theme="dark"] .pill.near { color: var(--amber); }
+  [data-theme="dark"] .pill.full, [data-theme="dark"] .pill.ready { color: var(--green); }
+  [data-theme="dark"] .pill.cooling { color: #ff6b75; }
+
+  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 10px;
+    box-shadow: 0 1px 2px rgba(15, 20, 25, .06), 0 2px 8px rgba(15, 20, 25, .04); }
+  h2 { margin: 0 0 10px; font-size: 13px; font-weight: 800; }
+  .who { margin-top: 6px; color: var(--sub); font-size: 12px; }
+
+  .windows { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+  .windows div { background: var(--card); border-radius: 12px; padding: 8px 4px 7px; text-align: center;
+    box-shadow: 0 1px 2px rgba(15, 20, 25, .06); }
+  .windows b { display: block; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .windows span { font-size: 12px; color: var(--sub); }
+
+  .rhythm { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .fig { background: var(--tile); border-radius: 10px; padding: 10px 12px; }
+  .fig span { display: block; font-size: 12px; color: var(--sub); }
+  .fig b { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .fig small { font-size: 12px; color: var(--sub); margin-left: 2px; }
+  .empty { color: var(--sub); font-size: 12px; background: var(--tile); border-radius: 10px; padding: 10px 12px; }
+  .rounds { list-style: none; margin: 10px 0 0; padding: 0; }
+  .rounds li { display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 8px; padding: 6px 0;
+    border-top: 1px solid var(--line); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .rounds .when { color: var(--sub); }
+  .rounds .rb { display: flex; align-items: center; gap: 6px; }
+  .rounds .rb i { display: block; height: 6px; border-radius: 3px; background: var(--blue); min-width: 6px; }
+  .rounds .wait { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--tile); color: var(--sub); }
+  .rounds .wait.live { background: rgba(244, 33, 46, .12); color: #b0141f; }
+  [data-theme="dark"] .rounds .wait.live { color: #ff6b75; }
+  .hint { margin: 8px 0 0; font-size: 12px; color: var(--sub); }
+
+  .ltiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .lt { background: var(--tile); border-radius: 10px; padding: 10px 12px; }
+  .lt .top { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--sub); }
+  .lt .top svg { color: var(--blue); }
+  .lt .val { margin-top: 2px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .lt .val b { font-size: 19px; font-weight: 800; }
+  .lt .val span { font-size: 11px; color: var(--sub); margin-left: 2px; }
+  .lt .note { font-size: 12px; color: var(--sub); line-height: 1.35; margin-top: 1px; }
+  .lt .mini { height: 4px; border-radius: 2px; background: var(--empty); margin-top: 5px; overflow: hidden; }
+  .lt .mini b { display: block; height: 100%; background: var(--blue); transform-origin: left; transform: scaleX(var(--p, 0)); }
+  details { margin-top: 10px; font-size: 12px; }
+  summary { cursor: pointer; color: var(--sub); font-weight: 600; list-style: none; display: flex; align-items: center; gap: 4px; }
+  summary::-webkit-details-marker { display: none; }
+  summary svg { transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1); }
+  details[open] summary svg { transform: rotate(180deg); }
+  details ul { margin: 8px 0 6px; padding-left: 16px; color: var(--sub); }
+  details li { margin-bottom: 3px; }
+  a { color: var(--blue); text-decoration: none; font-weight: 600; }
+  a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; padding-top: 0; }
+  .row label { flex: 1; cursor: pointer; }
+  .row small { display: block; color: var(--sub); font-size: 12px; }
+  .switch { appearance: none; -webkit-appearance: none; flex: none; width: 36px; height: 22px; margin: 0; border-radius: 999px;
+    background: var(--empty); position: relative; cursor: pointer; transition: background 200ms; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1); }
+  .switch:checked { background: var(--blue); }
+  .switch:checked::after { transform: translateX(14px); }
+  input[type=range] { flex: 1; accent-color: var(--blue); }
+  button { font: inherit; cursor: pointer; }
+  .btn { padding: 4px 12px; border-radius: 999px; border: 0; background: var(--tile); color: var(--fg); font-weight: 700; font-size: 12px; }
+  .btn:hover { background: var(--empty); }
+  .btn.primary { background: #1366a6; color: #fff; }
+  .btn.primary:hover { background: #0f5a93; }
+  .btn.danger { background: transparent; color: #c4161f; padding-right: 0; }
+  [data-theme="dark"] .btn.danger { color: #ff6b75; }
+  .themebtn { all: unset; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+    border-radius: 50%; color: var(--sub); cursor: pointer; }
+  .themebtn:hover { background: var(--tile); color: var(--fg); }
+  .themebtn:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+  .seg { display: inline-flex; padding: 2px; background: var(--tile); border-radius: 999px; }
+  .seg button { border: 0; background: transparent; color: var(--sub); font-size: 12px; font-weight: 700; padding: 4px 11px; border-radius: 999px; }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--fg); box-shadow: 0 1px 3px rgba(15, 20, 25, .15); }
+  .btn.danger.armed { background: rgba(244, 33, 46, .12); padding-right: 12px; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .stepper { display: inline-flex; align-items: center; background: var(--tile); border-radius: 999px; }
+  .stepper button { width: 28px; height: 26px; border: 0; background: transparent; color: var(--fg); font-size: 15px; font-weight: 700; border-radius: 999px; }
+  .stepper button:hover { background: var(--empty); }
+  .stepper output { min-width: 64px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; font-size: 12px; }
+
+  .steps { list-style: none; margin: 0 0 12px; padding: 0; counter-reset: s; }
+  .steps li { counter-increment: s; display: flex; gap: 10px; align-items: baseline; padding: 4px 0; }
+  .steps li::before { content: counter(s); flex: none; width: 22px; height: 22px; border-radius: 50%; background: rgba(29, 155, 240, .14);
+    color: var(--blue); font-weight: 800; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; transform: translateY(4px); }
+  .onboard p { margin: 0 0 10px; color: var(--sub); }
+  .onboard .acts { display: flex; gap: 8px; }
+  .fbhead { display: flex; align-items: baseline; gap: 10px; }
+  .fbhead b { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .fbhead span { color: var(--sub); font-size: 12px; }
+  .srcs { list-style: none; margin: 10px 0 0; padding: 0; }
+  .srcs li { display: grid; grid-template-columns: 96px 1fr 64px; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .srcs .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .srcs .track { height: 8px; border-radius: 4px; background: var(--empty); overflow: hidden; }
+  .srcs .track i { display: block; height: 100%; background: var(--blue); border-radius: 4px; }
+  .srcs .num { text-align: right; color: var(--sub); }
+  .srcs li.best .name { font-weight: 800; }
+  .srcs li.best .track i { background: var(--green); }
+  .sub-h { margin: 12px 0 2px; font-size: 12px; font-weight: 700; color: var(--sub); }
+  .meta { margin-top: 10px; font-size: 12px; color: var(--sub); }
+  .churn { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .guard-msg { margin-top: 10px; padding: 9px 11px; border-radius: 10px; font-size: 12px; line-height: 1.5; background: var(--tile); }
+  .guard-msg.warn { background: rgba(255, 173, 31, .16); color: #8a5300; }
+  .guard-msg.high { background: rgba(244, 33, 46, .12); color: #b0141f; }
+  [data-theme="dark"] .guard-msg.warn { color: var(--amber); }
+  [data-theme="dark"] .guard-msg.high { color: #ff6b75; }
+  .checks { list-style: none; margin: 0; padding: 0; }
+  .checks li { border-top: 1px solid var(--line); }
+  .checks li:first-child { border-top: 0; }
+  .checks label { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
+  .checks input { appearance: none; -webkit-appearance: none; flex: none; width: 18px; height: 18px; margin: 1px 0 0; border-radius: 6px;
+    border: 2px solid var(--empty); background: var(--card); cursor: pointer; display: grid; place-items: center; transition: background 150ms, border-color 150ms; }
+  .checks input:checked { background: var(--green); border-color: var(--green); }
+  .checks input:checked::after { content: ""; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: translateY(-1px) rotate(45deg); }
+  .checks b { display: block; font-size: 13px; }
+  .checks small { display: block; color: var(--sub); font-size: 12px; }
+  .checks input:checked + span b { color: var(--sub); text-decoration: line-through; text-decoration-color: var(--sub); }
+  .tip { margin-top: 10px; padding: 9px 11px; border-radius: 10px; background: rgba(29, 155, 240, .1); font-size: 12px; line-height: 1.5; }
+  .h2row { display: flex; justify-content: space-between; align-items: baseline; }
+  .progress-mini { font-size: 12px; color: var(--sub); font-weight: 600; }
+  footer { text-align: center; color: var(--sub); font-size: 12px; padding: 2px 0 4px; }
+  /* 没同意数据说明时，弹窗只显示提示卡片 */
+  body.noconsent > :not(#needConsent):not(script) { display: none !important; }
+  .ask { text-align: center; padding: 22px 18px; }
+  .ask img { width: 48px; height: 48px; }
+  .ask h2 { margin: 8px 0 6px; }
+  .ask p { margin: 0 0 14px; color: var(--sub); font-size: 13px; line-height: 1.55; }
+  .ask .hint { margin: 14px 0 0; }
+</style>
+</head>
+<body>
+  <section class="card ask" id="needConsent" hidden>
+    <img src="icons/icon128.png" alt="">
+    <h2>关注计数器还没开始工作</h2>
+    <p>开始之前，需要你看一下插件会读取哪些数据、存在哪里。同意之后才会开始计数。</p>
+    <button class="btn primary" id="openWelcome" type="button">查看数据说明</button>
+    <p class="hint" id="leftover" hidden>本机还留有之前的记录。<button class="btn danger" id="wipe" type="button">删除这些记录</button></p>
+  </section>
+  <header>
+    <img src="icons/icon32.png" alt="">
+    <h1>关注计数器</h1>
+    <span class="pill" id="pill">待开始</span>
+    <button class="themebtn" id="themeBtn" type="button"></button>
+  </header>
+
+  <section class="card onboard" id="onboard" hidden>
+    <h2>三步开始</h2>
+    <p>它会在你关注时帮你计数，快到 X 的限制时提醒你歇一下。</p>
+    <ol class="steps">
+      <li>打开 x.com，像平时一样点「关注」</li>
+      <li>左下角的进度格会一格一格亮起来，每关注一个人响一声</li>
+      <li>撞到限制后，插件会帮你算出要等多久</li>
+    </ol>
+    <div class="acts">
+      <button class="btn primary" id="openX" type="button">打开 X</button>
+      <button class="btn" id="demo1" type="button">试听音效</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div id="progress"></div>
+    <div class="who" id="who"></div>
+  </section>
+
+  <div class="windows">
+    <div><b id="m15">0</b><span>15 分钟</span></div>
+    <div><b id="m30">0</b><span>30 分钟</span></div>
+    <div><b id="h1">0</b><span>1 小时</span></div>
+    <div><b id="h24">0</b><span>24 小时</span></div>
+  </div>
+
+  <section class="card">
+    <h2 class="h2row">回关效果 <button class="btn" id="openList" type="button">未回关名单</button></h2>
+    <div id="fb"></div>
+  </section>
+
+  <section class="card">
+    <h2>取关护栏</h2>
+    <div class="churn">
+      <div class="fig"><span>近 24 小时取关</span><b id="unf24">0</b><small>个</small></div>
+      <div class="fig"><span>3 天内就取关</span><b id="quick24">0</b><small>个</small></div>
+    </div>
+    <div class="guard-msg" id="guard"></div>
+  </section>
+
+  <section class="card">
+    <h2>你的账号规律</h2>
+    <div id="rhythm"></div>
+    <ul class="rounds" id="rounds"></ul>
+    <p class="hint" id="rhint" hidden>这里只是实测记录，不会改你的每轮额度。等待时间从每轮最后一次成功关注算起；撞限后隔 5–10 分钟试一次，区间会越测越准。</p>
+  </section>
+
+  <section class="card">
+    <h2 class="h2row">主页检查清单 <span class="progress-mini" id="checkProg"></span></h2>
+    <ul class="checks" id="checks"></ul>
+    <div class="tip">别人回不回关，主要看你的主页和内容。另一个常被低估的办法：在你领域的大号帖子下写有内容的回复，比单纯关注更容易被看到。</div>
+  </section>
+
+  <section class="card">
+    <h2>X 官方限制</h2>
+    <div class="ltiles" id="ltiles"></div>
+    <details>
+      <summary>规则细节和来源 <span id="chev"></span></summary>
+      <ul id="notes"></ul>
+      <div id="src"></div>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2>设置</h2>
+    <div class="row"><span>外观<small>页面浮标和这里一起切换</small></span>
+      <span class="seg" id="themeSeg" role="group" aria-label="外观">
+        <button type="button" data-v="auto">自动</button><button type="button" data-v="light">浅色</button><button type="button" data-v="dark">深色</button>
+      </span></div>
+    <div class="row"><label for="badge">页面浮标<small>按住浮标可拖到任意位置</small></label><input class="switch" type="checkbox" id="badge"></div>
+    <div class="row"><span>浮标位置<small id="posText">左下角</small></span><button class="btn" id="resetPos" type="button">恢复到左下角</button></div>
+    <div class="row"><label for="sound">音效<small>越接近满额，声音越重</small></label><input class="switch" type="checkbox" id="sound"></div>
+    <div class="row"><input type="range" id="volume" min="0" max="100" aria-label="音量"><button class="btn" id="demo2" type="button">试听</button></div>
+    <div class="row"><label for="notify">解封提醒<small>等到以往的解封时长时弹通知</small></label><input class="switch" type="checkbox" id="notify"></div>
+    <div class="row"><span>每轮额度<small id="roundFrom"></small></span>
+      <span class="stepper"><button type="button" id="minus" aria-label="减少">−</button><output id="roundVal"></output><button type="button" id="plus" aria-label="增加">+</button></span></div>
+    <div class="row"><span>清空记录<small>删除关注记录、回关数据和名单，设置保留</small></span><button class="btn danger" id="clear" type="button">清空</button></div>
+    <div class="row"><span>数据与隐私<small>读取哪些数据、存在哪里</small></span><button class="btn" id="privacy" type="button">查看说明</button></div>
+    <div class="row"><span>撤回同意<small>立刻停止读取，已有记录保留，可再清空</small></span><button class="btn danger" id="revoke" type="button">撤回</button></div>
+  </section>
+  <footer>只记录、不替你操作 · 数据只存在本机</footer>
+
+  <script src="limits.js"></script>
+  <script src="stats.js"></script>
+  <script src="sound.js"></script>
+  <script src="ui.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
