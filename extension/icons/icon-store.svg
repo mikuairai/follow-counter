@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+<!-- Chrome 商店图标：深色方块正好 96×96，四周留 16px 透明边；整体偏暗，背后垫一圈很淡的白光，深色背景上也看得清 -->
+<defs><filter id="glow" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="1.5"/></filter></defs>
+<rect x="15" y="15" width="98" height="98" rx="23" fill="#fff" opacity=".5" filter="url(#glow)"/>
+<g transform="translate(12.8 12.8) scale(0.8)"><rect x="4" y="4" width="120" height="120" rx="28" fill="#0f1419"/><path d="M69.57 24.39 A40 40 0 0 1 99.95 46.47" stroke="#1d9bf0" stroke-width="12" fill="none" stroke-linecap="round"/><path d="M103.39 57.05 A40 40 0 0 1 91.79 92.77" stroke="#1d9bf0" stroke-width="12" fill="none" stroke-linecap="round"/><path d="M82.78 99.32 A40 40 0 0 1 45.22 99.32" stroke="#1d9bf0" stroke-width="12" fill="none" stroke-linecap="round"/><path d="M36.21 92.77 A40 40 0 0 1 24.61 57.05" stroke="#ffad1f" stroke-width="12" fill="none" stroke-linecap="round"/><path d="M28.05 46.47 A40 40 0 0 1 58.43 24.39" stroke="#38444d" stroke-width="12" fill="none" stroke-linecap="round"/><path d="M64 49.0 V79.0 M49.0 64 H79.0" stroke="#fff" stroke-width="10" stroke-linecap="round"/></g>
+</svg>

@@ -3,13 +3,24 @@ importScripts("limits.js", "stats.js");
 const Stats = self.XFP_Stats;
 
 async function refresh() {
-  const data = await chrome.storage.local.get(["events", "settings", "notifiedFor", "consent"]);
+  const data = await chrome.storage.local.get(["events", "settings", "notifiedFor", "consent", "follows"]);
   // 没同意数据说明前：图标上不显示数字，不排计时
   if (!Stats.hasConsent(data.consent)) {
     await chrome.action.setBadgeText({ text: "" });
     chrome.alarms.clearAll();
     return;
   }
+  // 按隐私政策写的保留时长清理：不只在新增记录时清，平时也定期清，不用插件的人旧记录也会过期
+  const cleanNow = Date.now();
+  const ev = data.events || [];
+  const keptEv = Stats.prune(ev, cleanNow);
+  const fl = data.follows || {};
+  const keptFl = Stats.pruneFollows(fl, cleanNow);
+  if (keptEv.length !== ev.length || Object.keys(keptFl).length !== Object.keys(fl).length) {
+    await chrome.storage.local.set({ events: keptEv, follows: keptFl });
+    return; // 写入会触发 storage 变化，再走一遍 refresh
+  }
+  if (!(await chrome.alarms.get("prune"))) chrome.alarms.create("prune", { periodInMinutes: 360 });
   const settings = Object.assign({}, Stats.DEFAULTS, data.settings || {});
   const now = Date.now();
   const s = Stats.compute(data.events || [], now);

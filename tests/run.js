@@ -275,4 +275,38 @@ assert.strictEqual(Stats.hasConsent({ v: Stats.CONSENT_VERSION, at: 1 }), true);
 assert.strictEqual(Stats.hasConsent({ v: Stats.CONSENT_VERSION - 1, at: 1 }), false, "说明改版后旧同意失效");
 assert.strictEqual(Stats.hasConsent(true), false);
 
-runInject().then(() => console.log("全部通过")).catch((e) => { console.error(e); process.exit(1); });
+// 后台定期按保留时长清理：同意后清掉过期记录；没同意不动数据
+async function runBackground(consent) {
+  const now = Date.now();
+  const D = 24 * 60 * MIN;
+  const store = {
+    consent,
+    events: [{ type: "follow", ok: true, ts: now - 8 * D }, { type: "follow", ok: true, ts: now - D }],
+    follows: { old: { ts: now - 61 * D }, fresh: { ts: now - D } }
+  };
+  const noop = () => {};
+  const ev = { addListener: noop };
+  const chrome = {
+    storage: { local: { get: async (keys) => Object.fromEntries(keys.map((k) => [k, store[k]])), set: async (o) => Object.assign(store, o) }, onChanged: ev },
+    action: { setBadgeText: async noop => {}, setBadgeBackgroundColor: async () => {}, setBadgeTextColor: async () => {} },
+    alarms: { create: noop, clear: noop, clearAll: noop, get: async () => null, onAlarm: ev },
+    notifications: { onClicked: ev, create: noop },
+    runtime: { onMessage: ev, onStartup: ev, onInstalled: ev, getURL: (x) => x },
+    tabs: { query: async () => [], create: noop }, windows: { update: noop }, scripting: { executeScript: async () => {} }
+  };
+  const sb = { chrome, console, Date, Math, Object, JSON, Promise, setTimeout };
+  sb.self = sb;
+  sb.importScripts = (...files) => files.forEach((f) => vm.runInContext(fs.readFileSync(path.join(__dirname, "../extension", f), "utf8"), ctx));
+  const ctx = vm.createContext(sb);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../extension/background.js"), "utf8"), ctx);
+  await new Promise((r) => setTimeout(r, 20));
+  return store;
+}
+
+runBackground({ v: Stats.CONSENT_VERSION, at: 1 }).then((s) => {
+  assert.strictEqual(s.events.length, 1, "超过 7 天的关注记录被清掉");
+  assert.deepStrictEqual(Object.keys(s.follows), ["fresh"], "超过 60 天的关注来源被清掉");
+  return runBackground(null);
+}).then((s) => {
+  assert.strictEqual(s.events.length, 2, "没同意时不动数据");
+}).then(() => runInject()).then(() => console.log("全部通过")).catch((e) => { console.error(e); process.exit(1); });
