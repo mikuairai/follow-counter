@@ -18,6 +18,7 @@
   let timer = null;
   // 用户在插件里同意数据说明之前，不读页面、不记录，只显示一个去看说明的小提示
   let consented = false;
+  let consentGeneration = 0;
   let askHost = null;
   let askDismissed = false;
 
@@ -38,7 +39,14 @@
 
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.consent) {
-      consented = Stats.hasConsent(changes.consent.newValue);
+      const next = Stats.hasConsent(changes.consent.newValue);
+      if (next !== consented) consentGeneration += 1;
+      consented = next;
+      if (!consented) {
+        if (relTimer) clearTimeout(relTimer);
+        relTimer = null;
+        pendingRel.clear();
+      }
       signal();
     }
     if (changes.events) events = changes.events.newValue || [];
@@ -53,8 +61,11 @@
 
   // 事件和关注名单一起写，排队执行，避免多个标签页同时写时互相覆盖
   function addEvent(ev) {
+    const generation = consentGeneration;
     writing = writing.then(() => new Promise((resolve) => {
+      if (!consented || generation !== consentGeneration) return resolve();
       chrome.storage.local.get(["events", "follows"], (data) => {
+        if (!consented || generation !== consentGeneration) return resolve();
         const now = Date.now();
         const map = data.follows || {};
         const key = ev.user ? ev.user.toLowerCase() : "";
@@ -78,10 +89,14 @@
 
   // 只更新名单里已有的人（你通过插件记录过的关注），其余数据不存
   function markFollowBack(users) {
+    if (!consented) return;
     users = users.filter((u) => u.f !== false);
     if (!users.some((u) => follows[String(u.name).toLowerCase()])) return;
+    const generation = consentGeneration;
     writing = writing.then(() => new Promise((resolve) => {
+      if (!consented || generation !== consentGeneration) return resolve();
       chrome.storage.local.get(["follows"], (data) => {
+        if (!consented || generation !== consentGeneration) return resolve();
         const map = data.follows || {};
         let changed = false;
         for (const u of users) {
@@ -126,11 +141,14 @@
   }
   function flushRelations() {
     relTimer = null;
-    if (!pendingRel.size) return;
+    if (!consented || !pendingRel.size) return;
+    const generation = consentGeneration;
     const batch = [...pendingRel.entries()];
     pendingRel.clear();
     writing = writing.then(() => new Promise((resolve) => {
+      if (!consented || generation !== consentGeneration) return resolve();
       chrome.storage.local.get(["following"], (data) => {
+        if (!consented || generation !== consentGeneration) return resolve();
         const map = data.following || {};
         const now = Date.now();
         for (const [key, u] of batch) {
@@ -162,6 +180,7 @@
   const TOAST_FOLLOW = /follow|关注/i;
   const TOAST_LIMIT = /unable|can't|cannot|limit|无法|上限|限制|稍后/i;
   function checkToast(node) {
+    if (!consented) return;
     const text = (node.innerText || node.textContent || "").trim();
     if (!text || text.length > 300 || !TOAST_FOLLOW.test(text) || !TOAST_LIMIT.test(text)) return;
     const now = Date.now();
@@ -171,6 +190,7 @@
   // 兜底：对方主页上有"关注了你"标签时，记为已回关
   let lastIndicator = "";
   function checkFollowsYou() {
+    if (!consented) return;
     const m = location.pathname.match(/^\/([^/]+)\/?$/);
     if (!m || !document.querySelector('[data-testid="userFollowIndicator"]')) return;
     const name = m[1].toLowerCase();
@@ -191,6 +211,7 @@
     return { n: Math.round(parseFloat(m[1]) * mult), approx: mult > 1 };
   }
   function checkMe() {
+    if (!consented) return;
     const link = document.querySelector('a[data-testid="AppTabBar_Profile_Link"]');
     const me = link ? (link.getAttribute("href") || "").replace(/^\//, "").split("/")[0] : "";
     if (!me) return;
@@ -313,7 +334,7 @@
       font: 13px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
       background: #fff; color: #0f1419; box-shadow: 0 6px 24px rgba(15, 20, 25, .22), 0 1px 3px rgba(15, 20, 25, .12); }
     .a[data-theme="dark"] { background: #16181c; color: #e7e9ea; box-shadow: 0 6px 24px rgba(0, 0, 0, .55), 0 0 0 1px #2f3336; }
-    img { width: 28px; height: 28px; flex: none; }
+    svg { width: 28px; height: 28px; flex: none; }
     b { display: block; font-size: 13px; }
     span { font-size: 12px; opacity: .75; }
     button { all: unset; cursor: pointer; font-weight: 700; font-size: 12px; white-space: nowrap; }
@@ -323,6 +344,8 @@
     .x:hover { opacity: 1; }
     button:focus-visible { outline: 2px solid #1d9bf0; outline-offset: 2px; }
   `;
+  // 图标直接内嵌：x.com 页面读不到插件里的图片文件（没开放 web_accessible_resources，也不想开放给网站探测）
+  const ASK_ICON = `<svg viewBox="0 0 128 128" aria-hidden="true"><rect x="4" y="4" width="120" height="120" rx="28" fill="#0f1419"/><path d="M71.25 26.70 A38 38 0 0 1 97.24 45.58" stroke="#1d9bf0" stroke-width="16" fill="none" stroke-linecap="round"/><path d="M101.72 59.37 A38 38 0 0 1 91.79 89.92" stroke="#1d9bf0" stroke-width="16" fill="none" stroke-linecap="round"/><path d="M80.06 98.44 A38 38 0 0 1 47.94 98.44" stroke="#1d9bf0" stroke-width="16" fill="none" stroke-linecap="round"/><path d="M36.21 89.92 A38 38 0 0 1 26.28 59.37" stroke="#ffad1f" stroke-width="16" fill="none" stroke-linecap="round"/><path d="M30.76 45.58 A38 38 0 0 1 56.75 26.70" stroke="#38444d" stroke-width="16" fill="none" stroke-linecap="round"/><path d="M64 46.0 V82.0 M46.0 64 H82.0" stroke="#fff" stroke-width="14" stroke-linecap="round"/></svg>`;
   function renderAsk(show) {
     if (!show || askDismissed) {
       if (askHost) { askHost.remove(); askHost = null; }
@@ -333,7 +356,7 @@
       askHost.id = "xfp-ask-host";
       const sh = askHost.attachShadow({ mode: "open" });
       sh.innerHTML = `<style>${ASK_CSS}</style><div class="a" role="status">
-        <img src="${chrome.runtime.getURL("icons/icon32.png")}" alt="">
+        ${ASK_ICON}
         <div><b>关注计数器还没开始工作</b><span>需要你先看一下数据说明并同意</span></div>
         <button class="go" type="button">查看说明</button><button class="x" type="button" aria-label="这次先不看">×</button></div>`;
       sh.querySelector(".go").addEventListener("click", () => chrome.runtime.sendMessage({ open: "welcome" }));

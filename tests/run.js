@@ -164,6 +164,8 @@ async function runInject() {
     ] } } }
   };
   let reads = 0;
+  let xhrReads = 0;
+  let resolveDelayedFetch;
   class FakeResponse {
     constructor(r) { this.status = r.status; this._t = JSON.stringify(r.body); }
     clone() { reads += 1; return this; }
@@ -173,14 +175,17 @@ async function runInject() {
     constructor() { this.l = {}; this.responseType = ""; }
     open(m, u) { this.u = u; }
     addEventListener(n, f) { this.l[n] = f; }
+    get responseText() { xhrReads += 1; return this._responseText; }
     send() {
       const r = responses[this.u];
-      this.status = r.status; this.responseText = JSON.stringify(r.body);
+      this.status = r.status; this._responseText = JSON.stringify(r.body);
       setTimeout(() => this.l.loadend && this.l.loadend(), 0);
     }
   }
   const win = {
-    fetch: (u) => Promise.resolve(new FakeResponse(responses[u])),
+    fetch: (u) => u.endsWith("?delayed")
+      ? new Promise((resolve) => { resolveDelayedFetch = resolve; })
+      : Promise.resolve(new FakeResponse(responses[u])),
     XMLHttpRequest: FakeXHR,
     postMessage: (d) => posted.push(d),
     location: { pathname: "/big/followers" }
@@ -244,6 +249,24 @@ async function runInject() {
   await new Promise((r) => setTimeout(r, 20));
   assert.strictEqual(reads, before, "撤回后不再读取");
   assert.strictEqual(posted.length, n, "撤回后不再上报");
+
+  // 已发出但尚未收到响应的请求：撤回后不能再读取或上报，重新同意也不能恢复旧请求。
+  ctl(true);
+  const pending = win.fetch("https://x.com/i/api/graphql/abc/Followers?delayed");
+  const delayedXhr = new win.XMLHttpRequest();
+  delayedXhr.open("POST", "https://x.com/i/api/1.1/friendships/destroy.json");
+  delayedXhr.send();
+  const beforePendingReads = reads;
+  const beforePendingXhrReads = xhrReads;
+  const beforePendingMessages = posted.length;
+  ctl(false);
+  ctl(true);
+  resolveDelayedFetch(new FakeResponse(responses["https://x.com/i/api/graphql/abc/Followers"]));
+  await pending;
+  await new Promise((r) => setTimeout(r, 20));
+  assert.strictEqual(reads, beforePendingReads, "撤回前发出的 fetch 在撤回后不能读取响应");
+  assert.strictEqual(xhrReads, beforePendingXhrReads, "撤回前发出的 XHR 在撤回后不能读取响应");
+  assert.strictEqual(posted.length, beforePendingMessages, "旧请求在撤回或重新同意后不能上报");
 }
 
 // 没撞限时歇满 15 分钟，本轮归零；不到 15 分钟仍是 full

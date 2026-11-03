@@ -5,7 +5,7 @@
 (function () {
   // 第一次安装时保存浏览器原本的 fetch/XHR。插件更新后注入的新版从原函数重新包一层、替换旧版，不会重复上报。
   // 早于本机制的旧版没有保存原函数，无法替换，只能等页面刷新。
-  const VERSION = 4;
+  const VERSION = 5;
   if (window.__xfpInstalled && !window.__xfpOrig) return;
   if (window.__xfpVersion >= VERSION) return;
   window.__xfpInstalled = true;
@@ -19,9 +19,12 @@
 
   // 只认插件自己的开关信号；页面脚本即使伪造，读到的数据到了 content.js 那边仍会因未同意被丢弃
   let on = false;
+  let consentGeneration = 0;
   window.addEventListener("message", (e) => {
     if (e.source !== window || !e.data || e.data.source !== "xfp-ctl") return;
-    on = e.data.on === true;
+    const next = e.data.on === true;
+    if (next !== on) consentGeneration += 1;
+    on = next;
   });
   // 新装入时问一声当前是否已同意（content.js 可能比本脚本先就绪）
   window.postMessage({ source: "xfp", kind: "hello" }, "*");
@@ -107,12 +110,23 @@
     window.fetch = function (input, init) {
       const url = typeof input === "string" ? input : input && input.url;
       const kind = on ? classify(url) : null;
+      const generation = consentGeneration;
       const p = origFetch.apply(this, arguments);
       if (kind) {
-        p.then((res) => res.clone().text().then((t) => report(kind, res.status, t)))
+        p.then((res) => {
+          if (!on || generation !== consentGeneration) return;
+          return res.clone().text().then((t) => {
+            if (on && generation === consentGeneration) report(kind, res.status, t);
+          });
+        })
           .catch(() => {});
       } else if (on && typeof url === "string" && GQL_ANY.test(url)) {
-        p.then((res) => res.clone().text().then(reportUsers)).catch(() => {});
+        p.then((res) => {
+          if (!on || generation !== consentGeneration) return;
+          return res.clone().text().then((t) => {
+            if (on && generation === consentGeneration) reportUsers(t);
+          });
+        }).catch(() => {});
       }
       return p;
     };
@@ -132,11 +146,16 @@
     };
     XHR.prototype.send = function () {
       if (!on) return origSend.apply(this, arguments);
+      const generation = consentGeneration;
       if (this.__xfpKind) {
         const kind = this.__xfpKind;
-        this.addEventListener("loadend", () => report(kind, this.status, xhrText(this)));
+        this.addEventListener("loadend", () => {
+          if (on && generation === consentGeneration) report(kind, this.status, xhrText(this));
+        });
       } else if (this.__xfpGql) {
-        this.addEventListener("loadend", () => reportUsers(xhrText(this)));
+        this.addEventListener("loadend", () => {
+          if (on && generation === consentGeneration) reportUsers(xhrText(this));
+        });
       }
       return origSend.apply(this, arguments);
     };
